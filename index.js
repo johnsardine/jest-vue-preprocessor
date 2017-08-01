@@ -6,16 +6,19 @@ const babelCore = require('babel-core');
 const findBabelConfig = require('find-babel-config');
 const tsc = require('typescript');
 
-const transformBabel = src => {
+const transformBabel = (src, filePath) => {
   const {config} = findBabelConfig.sync(process.cwd());
   const transformOptions = {
     presets: ['es2015'],
-    plugins: ['transform-runtime'],
+    plugins: ['transform-runtime']
   };
+  const combinedTransformOptions = config || transformOptions;
+  combinedTransformOptions.sourceMaps = true;
+  combinedTransformOptions.filename = filePath;
 
   let result;
   try {
-    result = babelCore.transform(src, config || transformOptions).code;
+    result = babelCore.transform(src, combinedTransformOptions);
   } catch (error) {
     // eslint-disable-next-line
     console.error('Failed to compile scr with `babel` at `vue-preprocessor`');
@@ -63,7 +66,7 @@ const extractHTML = (template, templatePath) => {
   return resultHTML;
 };
 
-const generateOutput = (script, renderFn, staticRenderFns) => {
+const generateOutput = (script, renderFn, staticRenderFns, map) => {
   let output = '';
   output +=
     '/* istanbul ignore next */;(function(){\n' + script + '\n})()\n' +
@@ -75,7 +78,7 @@ const generateOutput = (script, renderFn, staticRenderFns) => {
       '/* istanbul ignore next */__vue__options__.render = ' + renderFn + '\n' +
       '/* istanbul ignore next */__vue__options__.staticRenderFns = ' + staticRenderFns + '\n';
   }
-  return output;
+  return { code: output, map: map };
 };
 
 const stringifyRender = render => vueNextCompiler('function render () {' + render + '}');
@@ -89,7 +92,15 @@ module.exports = {
     // @author https://github.com/locobert
     // heavily based on vueify (Copyright (c) 2014-2016 Evan You)
     const { script, template } = vueCompiler.parseComponent(src, { pad: true});
-    const transformedScript = script ? transforms[script.lang || 'babel'](script.content) : '';
+    const transformKey = script.lang || 'babel';
+    let transformedScript = script ? transforms[transformKey](script.content, filePath) : '';
+
+    let transformedMap;
+    if (transformKey === 'babel') {
+      transformedMap = transformedScript.map;
+      transformedScript = transformedScript.code;
+    }
+
     let render;
     let staticRenderFns;
     if (template) {
@@ -99,6 +110,6 @@ module.exports = {
       staticRenderFns = stringifyStaticRender(res.staticRenderFns);
     }
 
-    return generateOutput(transformedScript, render, staticRenderFns);
+    return generateOutput(transformedScript, render, staticRenderFns, transformedMap);
   }
 };
